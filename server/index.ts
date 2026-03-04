@@ -1,51 +1,60 @@
 import express from 'express';
-import type { Request, Response } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
-import { MongoClient, ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import {
   authMiddlewareFactory,
-} from './middleware/authMiddleware.ts';
-import type { AuthenticatedRequest } from './middleware/authMiddleware.ts';
+} from './middleware/authMiddleware.js';
+import type { AuthenticatedRequest } from './middleware/authMiddleware.js';
+import { getDatabase } from './lib/db.js';
+import { getMissingEnvVars, getRuntimeConfig } from './lib/env.js';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
-const JWT_SECRET = process.env.JWT_SECRET;
 const PORT = Number(process.env.PORT || 3001);
+const NODE_ENV = process.env.NODE_ENV;
+
+let RUNTIME_CONFIG: ReturnType<typeof getRuntimeConfig> | null = null;
+let CONFIG_ERROR: string | null = null;
+try {
+  RUNTIME_CONFIG = getRuntimeConfig();
+} catch (error: any) {
+  CONFIG_ERROR = error?.message || 'Invalid runtime configuration';
+}
 
 // FIX: Startup logs show env/config health without printing secrets.
 console.log('[startup] Environment loaded');
-console.log(`[startup] NODE_ENV=${process.env.NODE_ENV || 'development'}`);
+console.log(`[startup] NODE_ENV=${NODE_ENV || 'unset'}`);
 console.log(`[startup] PORT=${PORT}`);
-console.log(`[startup] MONGO_URI loaded=${Boolean(MONGO_URI)}`);
-console.log(`[startup] JWT_SECRET loaded=${Boolean(JWT_SECRET)}`);
+console.log(`[startup] MONGO_URI loaded=${Boolean(process.env.MONGO_URI)}`);
+console.log(`[startup] JWT_SECRET loaded=${Boolean(process.env.JWT_SECRET)}`);
+console.log(`[startup] Missing env vars=${getMissingEnvVars().join(', ') || 'none'}`);
 
-const authenticateToken = authMiddlewareFactory(JWT_SECRET);
+const authenticateToken = authMiddlewareFactory();
 const ALLOWED_ROLES = new Set(['employee', 'hr', 'platform_admin']);
-
-let cachedDb: any = null;
-let cachedClient: MongoClient | null = null;
-const CONFIG_ERROR = !MONGO_URI
-  ? 'Missing required env var: MONGO_URI'
-  : !JWT_SECRET
-    ? 'Missing required env var: JWT_SECRET'
-    : null;
 
 function sendError(
   res: Response,
   status: number,
   message: string,
-  details?: string | Record<string, any>
+  error?: string | Record<string, any>
 ) {
   return res.status(status).json({
     success: false,
     message,
-    ...(details ? { details } : {}),
+    ...(error ? { error } : {}),
   });
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
 
 function buildUserIdFilter(id: string) {
@@ -70,13 +79,13 @@ function toPublicProfile(user: any) {
 }
 
 function signAuthToken(user: { userId: string; role: string }) {
-  if (!JWT_SECRET) {
+  if (!RUNTIME_CONFIG?.JWT_SECRET) {
     throw new Error('JWT_SECRET is missing');
   }
   // FIX: Unified JWT payload + expiry.
   return jwt.sign(
     { userId: user.userId, role: user.role },
-    JWT_SECRET as string,
+    process.env.JWT_SECRET || RUNTIME_CONFIG.JWT_SECRET,
     { expiresIn: '1d' }
   );
 }
@@ -85,21 +94,8 @@ function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-async function connectDB() {
-  if (!MONGO_URI) {
-    throw new Error('MONGO_URI is missing');
-  }
-
-  if (cachedDb) {
-    return cachedDb;
-  }
-
-  cachedClient = new MongoClient(MONGO_URI as string);
-  await cachedClient.connect();
-  cachedDb = cachedClient.db();
-  // FIX: explicit connection status log.
-  console.log('[startup] Connected to MongoDB Atlas');
-  return cachedDb;
+async function connectDB(): Promise<any> {
+  return getDatabase() as any;
 }
 
 function ensureServerConfig(res: Response) {
@@ -186,7 +182,7 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('[auth/register] error:', error?.message || error);
-    return sendError(res, 500, 'Failed to register user');
+    return sendError(res, 500, 'Failed to register user', getErrorMessage(error));
   }
 });
 
@@ -225,7 +221,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('[auth/login] error:', error?.message || error);
-    return sendError(res, 500, 'Failed to login');
+    return sendError(res, 500, 'Failed to login', getErrorMessage(error));
   }
 });
 
@@ -251,7 +247,7 @@ app.get('/api/auth/me', authenticateToken, async (req: AuthenticatedRequest, res
     });
   } catch (error: any) {
     console.error('[auth/me] error:', error?.message || error);
-    return sendError(res, 500, 'Failed to fetch current user');
+    return sendError(res, 500, 'Failed to fetch current user', getErrorMessage(error));
   }
 });
 
@@ -275,7 +271,7 @@ app.get('/api/profiles/me', authenticateToken, async (req: AuthenticatedRequest,
     return res.json(toPublicProfile(user));
   } catch (error: any) {
     console.error('[profiles/me] error:', error?.message || error);
-    return sendError(res, 500, 'Failed to fetch profile');
+    return sendError(res, 500, 'Failed to fetch profile', getErrorMessage(error));
   }
 });
 
@@ -290,7 +286,7 @@ app.get('/api/profiles', authenticateToken, async (_req: AuthenticatedRequest, r
     return res.json(profiles);
   } catch (error: any) {
     console.error('[profiles] error:', error?.message || error);
-    return sendError(res, 500, 'Failed to fetch profiles');
+    return sendError(res, 500, 'Failed to fetch profiles', getErrorMessage(error));
   }
 });
 
@@ -320,7 +316,7 @@ app.put('/api/profiles/:id', authenticateToken, async (req: AuthenticatedRequest
     return res.json(toPublicProfile(result));
   } catch (error: any) {
     console.error('[profiles/:id] error:', error?.message || error);
-    return sendError(res, 500, 'Failed to update profile');
+    return sendError(res, 500, 'Failed to update profile', getErrorMessage(error));
   }
 });
 
@@ -384,7 +380,7 @@ app.post('/api/users', authenticateToken, async (req: AuthenticatedRequest, res:
     });
   } catch (error: any) {
     console.error('[users/create] error:', error?.message || error);
-    return sendError(res, 500, 'Failed to create user');
+    return sendError(res, 500, 'Failed to create user', getErrorMessage(error));
   }
 });
 
@@ -418,7 +414,7 @@ app.put('/api/users/:id', authenticateToken, async (req: AuthenticatedRequest, r
     return res.json(toPublicProfile(result));
   } catch (error: any) {
     console.error('[users/update] error:', error?.message || error);
-    return sendError(res, 500, 'Failed to update user');
+    return sendError(res, 500, 'Failed to update user', getErrorMessage(error));
   }
 });
 
@@ -442,7 +438,7 @@ app.delete('/api/users/:id', authenticateToken, async (req: AuthenticatedRequest
     return res.json({ success: true, message: 'User deleted successfully' });
   } catch (error: any) {
     console.error('[users/delete] error:', error?.message || error);
-    return sendError(res, 500, 'Failed to delete user');
+    return sendError(res, 500, 'Failed to delete user', getErrorMessage(error));
   }
 });
 
@@ -491,7 +487,7 @@ app.post('/api/progress/module', authenticateToken, async (req: AuthenticatedReq
     });
   } catch (error: any) {
     console.error('[progress/module] error:', error?.message || error);
-    return sendError(res, 500, 'Failed to update module progress');
+    return sendError(res, 500, 'Failed to update module progress', getErrorMessage(error));
   }
 });
 
@@ -542,7 +538,7 @@ app.post('/api/progress/complete', authenticateToken, async (req: AuthenticatedR
     });
   } catch (error: any) {
     console.error('[progress/complete] error:', error?.message || error);
-    return sendError(res, 500, 'Failed to submit course completion');
+    return sendError(res, 500, 'Failed to submit course completion', getErrorMessage(error));
   }
 });
 
@@ -575,8 +571,16 @@ app.post('/api/xp', authenticateToken, async (req: AuthenticatedRequest, res: Re
     return res.json({ success: true, xp });
   } catch (error: any) {
     console.error('[xp/update] error:', error?.message || error);
-    return sendError(res, 500, 'Failed to update XP');
+    return sendError(res, 500, 'Failed to update XP', getErrorMessage(error));
   }
+});
+
+app.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
+  console.error('[unhandled] error:', getErrorMessage(error));
+  if (res.headersSent) {
+    return next(error);
+  }
+  return sendError(res, 500, 'Server error', getErrorMessage(error));
 });
 
 app.use((_req, res) => sendError(res, 404, 'Route not found'));

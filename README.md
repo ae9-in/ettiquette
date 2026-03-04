@@ -192,3 +192,17 @@ This project is for educational purposes.
 ## 🤝 Support
 
 For issues or questions, refer to the documentation files in this repository.
+
+## Fixing 404 on Refresh (Vercel + React Router)
+
+This app uses `BrowserRouter`, so routes like `/login` and `/dashboard` are client-side routes.
+On direct open or browser refresh, Vercel must serve the SPA entry (`/`) instead of looking for a physical file at that path.
+
+Updated `vercel.json` rewrites:
+- Keep backend endpoints working: `/api/(.*) -> /api/$1`
+- Send all other paths to the SPA entry: `/(.*) -> /`
+
+Required Vercel project settings:
+- Build Command: `npm run build`
+- Output Directory: `dist`
+- Root Directory: `copy-of-wokring-yes/copy-of-wokring-yes` (if your repo deploy root is the top-level folder)

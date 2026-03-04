@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 const Login: React.FC = () => {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [email, setEmail] = useState('');
@@ -13,11 +15,11 @@ const Login: React.FC = () => {
     setLoading(true);
     setError('');
     try {
-      await signIn(email, password);
+      const destination = await signIn(email, password);
+      navigate(destination || '/employee', { replace: true });
     } catch (err: any) {
       setError(err.message || 'Authentication failed');
     } finally {
-      // FIX: Always release button loading state.
       setLoading(false);
     }
   };
@@ -40,26 +42,32 @@ const Login: React.FC = () => {
 
           <form onSubmit={handleSignIn} className="space-y-6">
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">Email</label>
+              <label htmlFor="login-email" className="block text-sm font-bold text-slate-700 mb-2">Email</label>
               <input
+                id="login-email"
+                name="email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                autoComplete="email"
                 className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 placeholder="your@email.com"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">Password</label>
+              <label htmlFor="login-password" className="block text-sm font-bold text-slate-700 mb-2">Password</label>
               <input
+                id="login-password"
+                name="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                autoComplete="current-password"
                 className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                placeholder="••••••••"
+                placeholder="********"
               />
             </div>
 
@@ -74,7 +82,7 @@ const Login: React.FC = () => {
         </div>
 
         <p className="mt-12 text-center text-[10px] text-slate-300 font-black uppercase tracking-[0.3em]">
-          Secure Enterprise Gateway • SSL Encrypted
+          Secure Enterprise Gateway
         </p>
       </div>
     </div>

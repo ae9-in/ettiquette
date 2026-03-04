@@ -2,6 +2,12 @@ import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
+function getHomeRouteByRole(role: string | undefined) {
+  if (role === 'platform_admin') return '/admin';
+  if (role === 'hr') return '/hr';
+  return '/employee';
+}
+
 export default function ProtectedRoute({
   children,
   role,
@@ -27,8 +33,12 @@ export default function ProtectedRoute({
   }
 
   // If user is logged in but profile is missing (should be caught by AuthContext, but safety first)
-  if (!profile || profile.role !== role) {
+  if (!profile) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (profile.role !== role) {
+    return <Navigate to={getHomeRouteByRole(profile.role)} replace />;
   }
 
   return children;

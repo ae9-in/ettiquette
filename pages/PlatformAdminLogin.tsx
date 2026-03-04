@@ -24,7 +24,6 @@ export default function PlatformAdminLogin() {
       if (profile.role === 'platform_admin') {
         navigate('/admin', { replace: true });
       } else {
-        // FIX: Prevent non-admin accounts from staying authenticated on admin route.
         signOut();
         setError('This account is not a platform admin.');
         setProcessing(false);
@@ -38,11 +37,11 @@ export default function PlatformAdminLogin() {
     setError('');
 
     try {
-      await signIn(email, password);
+      const destination = await signIn(email, password);
+      navigate(destination || '/admin', { replace: true });
     } catch (err: any) {
       setError(err.message || 'Authentication failed');
     } finally {
-      // FIX: Always clear processing state to avoid stuck UI.
       setProcessing(false);
     }
   };
@@ -73,22 +72,36 @@ export default function PlatformAdminLogin() {
           )}
 
           <form className="space-y-4" onSubmit={handleAdminLogin}>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@company.com"
-              className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password"
-              className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+            <div className="text-left">
+              <label htmlFor="admin-login-email" className="block text-sm font-bold text-slate-700 mb-2">Admin Email</label>
+              <input
+                id="admin-login-email"
+                name="email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+                placeholder="admin@company.com"
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div className="text-left">
+              <label htmlFor="admin-login-password" className="block text-sm font-bold text-slate-700 mb-2">Password</label>
+              <input
+                id="admin-login-password"
+                name="password"
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                placeholder="********"
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
             <button
               type="submit"
               disabled={processing}
@@ -106,4 +119,3 @@ export default function PlatformAdminLogin() {
     </div>
   );
 }
-

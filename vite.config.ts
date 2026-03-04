@@ -9,6 +9,10 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       host: '0.0.0.0',
       proxy: {
+        '/api': {
+          target: env.VITE_DEV_API_TARGET || 'http://localhost:3001',
+          changeOrigin: true,
+        },
         '/supabase-functions': {
           target: `${env.VITE_SUPABASE_URL || 'https://uwwxpczsrafdrqdyrkgx.supabase.co'}/functions/v1`,
           changeOrigin: true,

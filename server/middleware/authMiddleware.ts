@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import type { JwtPayload } from 'jsonwebtoken';
 import type { Request, Response, NextFunction } from 'express';
+import { getRuntimeConfig } from '../lib/env.js';
 
 type AuthUser = {
   userId: string;
@@ -31,15 +32,18 @@ function sendAuthError(
   });
 }
 
-export function authMiddlewareFactory(jwtSecret: string | undefined) {
+export function authMiddlewareFactory() {
   return function authMiddleware(
     req: AuthenticatedRequest,
     res: Response,
     next: NextFunction
   ) {
-    if (!jwtSecret) {
-      // FIX: Do not crash serverless function when JWT_SECRET is missing.
-      return sendAuthError(res, 500, 'Server auth configuration is missing');
+    let jwtSecret: string;
+    try {
+      jwtSecret = getRuntimeConfig().JWT_SECRET;
+    } catch (error: any) {
+      // FIX: Do not crash serverless function when env is missing.
+      return sendAuthError(res, 500, 'Server auth configuration is missing', error?.message);
     }
 
     const rawHeader = req.headers.authorization;
@@ -62,7 +66,7 @@ export function authMiddlewareFactory(jwtSecret: string | undefined) {
     }
 
     try {
-      const decoded = jwt.verify(token, jwtSecret) as JWTUserPayload;
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || jwtSecret) as JWTUserPayload;
       const userId = decoded.userId || decoded.id;
       const role = decoded.role;
 
