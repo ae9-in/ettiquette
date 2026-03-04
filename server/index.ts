@@ -5,21 +5,25 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
 const app = express();
-const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/etiquette_lms';
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://jishnunreddy_db_user:yJDLa5dDrOaXMpGC@cluster900.rtmxg8z.mongodb.net/etiquette_lms?retryWrites=true&w=majority&appName=Cluster900';
+const JWT_SECRET = process.env.JWT_SECRET || 'etiquette-lms-jwt-secret-key-2026';
 
-let db: any;
+let cachedDb: any = null;
 
 async function connectDB() {
+  if (cachedDb) {
+    return cachedDb;
+  }
+  
   const client = new MongoClient(MONGODB_URI);
   await client.connect();
-  db = client.db();
+  cachedDb = client.db();
   console.log('Connected to MongoDB');
+  return cachedDb;
 }
 
 // Middleware to verify JWT
@@ -43,6 +47,7 @@ function authenticateToken(req: any, res: any, next: any) {
 // Auth Routes
 app.post('/api/auth/register', async (req, res) => {
   try {
+    const db = await connectDB();
     const { email, password, name, role, department, assignedCourses } = req.body;
 
     const existingUser = await db.collection('users').findOne({ email });
@@ -79,6 +84,7 @@ app.post('/api/auth/register', async (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   try {
+    const db = await connectDB();
     const { email, password } = req.body;
 
     const user = await db.collection('users').findOne({ email });
@@ -103,6 +109,7 @@ app.post('/api/auth/login', async (req, res) => {
 // Profile Routes
 app.get('/api/profiles/me', authenticateToken, async (req: any, res) => {
   try {
+    const db = await connectDB();
     const user = await db.collection('users').findOne({ _id: new ObjectId(req.user.id) });
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -129,6 +136,7 @@ app.get('/api/profiles/me', authenticateToken, async (req: any, res) => {
 
 app.get('/api/profiles', authenticateToken, async (req: any, res) => {
   try {
+    const db = await connectDB();
     const users = await db.collection('users').find({}).toArray();
     const profiles = users.map((user: any) => ({
       id: user._id.toString(),
@@ -151,6 +159,7 @@ app.get('/api/profiles', authenticateToken, async (req: any, res) => {
 
 app.put('/api/profiles/:id', authenticateToken, async (req: any, res) => {
   try {
+    const db = await connectDB();
     const { id } = req.params;
     const updates = req.body;
 
@@ -190,6 +199,7 @@ app.put('/api/profiles/:id', authenticateToken, async (req: any, res) => {
 // User Management Routes
 app.post('/api/users', authenticateToken, async (req: any, res) => {
   try {
+    const db = await connectDB();
     if (req.user.role !== 'platform_admin' && req.user.role !== 'hr') {
       return res.status(403).json({ message: 'Unauthorized' });
     }
@@ -238,6 +248,7 @@ app.post('/api/users', authenticateToken, async (req: any, res) => {
 
 app.put('/api/users/:id', authenticateToken, async (req: any, res) => {
   try {
+    const db = await connectDB();
     if (req.user.role !== 'platform_admin' && req.user.role !== 'hr') {
       return res.status(403).json({ message: 'Unauthorized' });
     }
@@ -280,6 +291,7 @@ app.put('/api/users/:id', authenticateToken, async (req: any, res) => {
 
 app.delete('/api/users/:id', authenticateToken, async (req: any, res) => {
   try {
+    const db = await connectDB();
     if (req.user.role !== 'platform_admin' && req.user.role !== 'hr') {
       return res.status(403).json({ message: 'Unauthorized' });
     }
@@ -301,6 +313,7 @@ app.delete('/api/users/:id', authenticateToken, async (req: any, res) => {
 // Progress Routes
 app.post('/api/progress/module', authenticateToken, async (req: any, res) => {
   try {
+    const db = await connectDB();
     const { courseId, moduleId } = req.body;
     const userId = req.user.id;
 
@@ -331,6 +344,7 @@ app.post('/api/progress/module', authenticateToken, async (req: any, res) => {
 
 app.post('/api/progress/complete', authenticateToken, async (req: any, res) => {
   try {
+    const db = await connectDB();
     const { courseId, score } = req.body;
     const userId = req.user.id;
 
@@ -366,6 +380,7 @@ app.post('/api/progress/complete', authenticateToken, async (req: any, res) => {
 // XP Routes
 app.post('/api/xp', authenticateToken, async (req: any, res) => {
   try {
+    const db = await connectDB();
     const { xp } = req.body;
     const userId = req.user.id;
 
@@ -381,12 +396,5 @@ app.post('/api/xp', authenticateToken, async (req: any, res) => {
   }
 });
 
-// Start server
-connectDB().then(() => {
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
-}).catch(err => {
-  console.error('Failed to start server:', err);
-  process.exit(1);
-});
+// Export for Vercel serverless
+export default app;
