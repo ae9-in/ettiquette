@@ -1,5 +1,6 @@
-import jwt, { JwtPayload } from 'jsonwebtoken';
-import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
+import type { JwtPayload } from 'jsonwebtoken';
+import type { Request, Response, NextFunction } from 'express';
 
 type AuthUser = {
   userId: string;
@@ -30,12 +31,17 @@ function sendAuthError(
   });
 }
 
-export function authMiddlewareFactory(jwtSecret: string) {
+export function authMiddlewareFactory(jwtSecret: string | undefined) {
   return function authMiddleware(
     req: AuthenticatedRequest,
     res: Response,
     next: NextFunction
   ) {
+    if (!jwtSecret) {
+      // FIX: Do not crash serverless function when JWT_SECRET is missing.
+      return sendAuthError(res, 500, 'Server auth configuration is missing');
+    }
+
     const rawHeader = req.headers.authorization;
 
     if (!rawHeader) {
@@ -74,4 +80,3 @@ export function authMiddlewareFactory(jwtSecret: string) {
     }
   };
 }
-

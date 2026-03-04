@@ -1,12 +1,13 @@
-import express, { Request, Response } from 'express';
+import express from 'express';
+import type { Request, Response } from 'express';
 import cors from 'cors';
 import { MongoClient, ObjectId } from 'mongodb';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import {
   authMiddlewareFactory,
-  AuthenticatedRequest,
-} from './middleware/authMiddleware';
+} from './middleware/authMiddleware.ts';
+import type { AuthenticatedRequest } from './middleware/authMiddleware.ts';
 
 const app = express();
 app.use(cors());
@@ -15,13 +16,6 @@ app.use(express.json());
 const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
 const JWT_SECRET = process.env.JWT_SECRET;
 const PORT = Number(process.env.PORT || 3001);
-
-if (!MONGO_URI) {
-  throw new Error('Missing required env var: MONGO_URI');
-}
-if (!JWT_SECRET) {
-  throw new Error('Missing required env var: JWT_SECRET');
-}
 
 // FIX: Startup logs show env/config health without printing secrets.
 console.log('[startup] Environment loaded');
@@ -35,6 +29,11 @@ const ALLOWED_ROLES = new Set(['employee', 'hr', 'platform_admin']);
 
 let cachedDb: any = null;
 let cachedClient: MongoClient | null = null;
+const CONFIG_ERROR = !MONGO_URI
+  ? 'Missing required env var: MONGO_URI'
+  : !JWT_SECRET
+    ? 'Missing required env var: JWT_SECRET'
+    : null;
 
 function sendError(
   res: Response,
@@ -71,6 +70,9 @@ function toPublicProfile(user: any) {
 }
 
 function signAuthToken(user: { userId: string; role: string }) {
+  if (!JWT_SECRET) {
+    throw new Error('JWT_SECRET is missing');
+  }
   // FIX: Unified JWT payload + expiry.
   return jwt.sign(
     { userId: user.userId, role: user.role },
@@ -84,6 +86,10 @@ function isValidEmail(email: string) {
 }
 
 async function connectDB() {
+  if (!MONGO_URI) {
+    throw new Error('MONGO_URI is missing');
+  }
+
   if (cachedDb) {
     return cachedDb;
   }
@@ -96,13 +102,36 @@ async function connectDB() {
   return cachedDb;
 }
 
+function ensureServerConfig(res: Response) {
+  if (CONFIG_ERROR) {
+    // FIX: Return structured config errors instead of crashing function invocation.
+    return sendError(res, 500, 'Server configuration error', CONFIG_ERROR);
+  }
+  return null;
+}
+
+app.use((req, _res, next) => {
+  // FIX: Backward-compatible aliases so /auth/* works as /api/auth/*.
+  const aliasPrefixes = ['/auth/', '/profiles', '/users', '/progress', '/xp', '/health'];
+  if (!req.url.startsWith('/api/') && aliasPrefixes.some((p) => req.url.startsWith(p))) {
+    req.url = `/api${req.url}`;
+  }
+  next();
+});
+
 app.get('/api/health', async (_req, res) => {
+  if (CONFIG_ERROR) {
+    return sendError(res, 500, 'Server configuration error', CONFIG_ERROR);
+  }
   return res.json({ success: true, message: 'API is healthy' });
 });
 
 // Auth Routes
 app.post('/api/auth/register', async (req: Request, res: Response) => {
   try {
+    const configErr = ensureServerConfig(res);
+    if (configErr) return configErr;
+
     const db = await connectDB();
     const { email, password, name, role, department, assignedCourses } = req.body || {};
 
@@ -163,6 +192,9 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
 
 app.post('/api/auth/login', async (req: Request, res: Response) => {
   try {
+    const configErr = ensureServerConfig(res);
+    if (configErr) return configErr;
+
     const db = await connectDB();
     const { email, password } = req.body || {};
 
@@ -199,6 +231,9 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
 
 app.get('/api/auth/me', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const configErr = ensureServerConfig(res);
+    if (configErr) return configErr;
+
     const db = await connectDB();
     const userId = req.user?.userId;
     if (!userId) {
@@ -223,6 +258,9 @@ app.get('/api/auth/me', authenticateToken, async (req: AuthenticatedRequest, res
 // Profile Routes
 app.get('/api/profiles/me', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const configErr = ensureServerConfig(res);
+    if (configErr) return configErr;
+
     const db = await connectDB();
     const userId = req.user?.userId;
     if (!userId) {
@@ -243,6 +281,9 @@ app.get('/api/profiles/me', authenticateToken, async (req: AuthenticatedRequest,
 
 app.get('/api/profiles', authenticateToken, async (_req: AuthenticatedRequest, res: Response) => {
   try {
+    const configErr = ensureServerConfig(res);
+    if (configErr) return configErr;
+
     const db = await connectDB();
     const users = await db.collection('users').find({}).toArray();
     const profiles = users.map((user: any) => toPublicProfile(user));
@@ -255,6 +296,9 @@ app.get('/api/profiles', authenticateToken, async (_req: AuthenticatedRequest, r
 
 app.put('/api/profiles/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const configErr = ensureServerConfig(res);
+    if (configErr) return configErr;
+
     const db = await connectDB();
     const { id } = req.params;
     const updates = { ...(req.body || {}) };
@@ -283,6 +327,9 @@ app.put('/api/profiles/:id', authenticateToken, async (req: AuthenticatedRequest
 // User Management Routes
 app.post('/api/users', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const configErr = ensureServerConfig(res);
+    if (configErr) return configErr;
+
     const db = await connectDB();
     if (req.user?.role !== 'platform_admin' && req.user?.role !== 'hr') {
       return sendError(res, 403, 'Unauthorized');
@@ -343,6 +390,9 @@ app.post('/api/users', authenticateToken, async (req: AuthenticatedRequest, res:
 
 app.put('/api/users/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const configErr = ensureServerConfig(res);
+    if (configErr) return configErr;
+
     const db = await connectDB();
     if (req.user?.role !== 'platform_admin' && req.user?.role !== 'hr') {
       return sendError(res, 403, 'Unauthorized');
@@ -374,6 +424,9 @@ app.put('/api/users/:id', authenticateToken, async (req: AuthenticatedRequest, r
 
 app.delete('/api/users/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const configErr = ensureServerConfig(res);
+    if (configErr) return configErr;
+
     const db = await connectDB();
     if (req.user?.role !== 'platform_admin' && req.user?.role !== 'hr') {
       return sendError(res, 403, 'Unauthorized');
@@ -396,6 +449,9 @@ app.delete('/api/users/:id', authenticateToken, async (req: AuthenticatedRequest
 // Progress Routes
 app.post('/api/progress/module', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const configErr = ensureServerConfig(res);
+    if (configErr) return configErr;
+
     const db = await connectDB();
     const { courseId, moduleId } = req.body || {};
     const userId = req.user?.userId;
@@ -441,6 +497,9 @@ app.post('/api/progress/module', authenticateToken, async (req: AuthenticatedReq
 
 app.post('/api/progress/complete', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const configErr = ensureServerConfig(res);
+    if (configErr) return configErr;
+
     const db = await connectDB();
     const { courseId, score } = req.body || {};
     const userId = req.user?.userId;
@@ -490,6 +549,9 @@ app.post('/api/progress/complete', authenticateToken, async (req: AuthenticatedR
 // XP Routes
 app.post('/api/xp', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const configErr = ensureServerConfig(res);
+    if (configErr) return configErr;
+
     const db = await connectDB();
     const { xp } = req.body || {};
     const userId = req.user?.userId;
@@ -527,4 +589,3 @@ if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
-
