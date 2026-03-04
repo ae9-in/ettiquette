@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { api, APIError } from '../systems/api';
+import { AUTH_TOKEN_KEY, IS_DEV } from '../src/config';
 
 type Role = 'hr' | 'employee' | 'platform_admin';
 
@@ -22,11 +23,54 @@ type AuthContextType = {
   profile: Profile | null;
   loading: boolean;
   profileError: Error | null;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<string>;
   signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const JWT_PATTERN = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/;
+
+function logDebug(message: string, payload?: unknown) {
+  if (IS_DEV) {
+    if (payload !== undefined) {
+      console.log(message, payload);
+    } else {
+      console.log(message);
+    }
+  }
+}
+
+function clearStoredToken() {
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+  localStorage.removeItem('token');
+}
+
+function getStoredToken() {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem('token');
+  if (!token) return null;
+
+  if (!JWT_PATTERN.test(token)) {
+    clearStoredToken();
+    return null;
+  }
+
+  return token;
+}
+
+function normalizeRole(role: unknown): Role {
+  const value = String(role || '').trim().toLowerCase();
+  if (value === 'platform_admin' || value === 'hr' || value === 'employee') {
+    return value;
+  }
+  return 'employee';
+}
+
+function getHomeRouteByRole(role: unknown): string {
+  const normalized = normalizeRole(role);
+  if (normalized === 'platform_admin') return '/admin';
+  if (normalized === 'hr') return '/hr';
+  return '/employee';
+}
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<any | null>(null);
@@ -39,27 +83,27 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     let timeoutId: NodeJS.Timeout;
 
     const init = async () => {
-      console.log('[Auth] Initializing session...');
+      logDebug('[Auth] Initializing session...');
       setLoading(true);
       setProfileError(null);
 
       // Set timeout to prevent infinite loading
       timeoutId = setTimeout(() => {
         if (mounted) {
-          console.warn('[Auth] Initialization timed out, forcing loading=false');
+          logDebug('[Auth] Initialization timed out, forcing loading=false');
           setLoading(false);
         }
       }, 5000);
 
       try {
-        const token = localStorage.getItem('auth_token');
+        const token = getStoredToken();
         if (token) {
-          console.log('[Auth] Token found, loading profile...');
+          logDebug('[Auth] Token found, loading profile...');
           if (mounted) {
             await loadProfile();
           }
         } else {
-          console.log('[Auth] No token found');
+          logDebug('[Auth] No token found');
           if (mounted) {
             setLoading(false);
           }
@@ -93,19 +137,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const profileData = meResponse?.user;
       
       if (!profileData) {
-        console.warn('[Auth] No profile data returned');
+        logDebug('[Auth] No profile data returned');
         await signOut();
         setProfileError(new Error("Profile not found"));
         setLoading(false);
         return;
       }
 
-      setUser({ email: profileData.email, id: profileData.id });
+      const role = normalizeRole(profileData.role);
+      setUser({ email: profileData.email, id: profileData.id, role });
       setProfile({
         ...profileData,
+        role,
         assignedCourses: profileData.assignedCourses || profileData.assigned_courses || []
       });
       setLoading(false);
+      return getHomeRouteByRole(role);
     } catch (err: any) {
       console.error('[Auth] Profile load error:', err);
       if (err instanceof APIError && (err.status === 401 || err.status === 403)) {
@@ -125,24 +172,62 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const response = await api.login(email, password);
       
       if (response.token) {
-        localStorage.setItem('auth_token', response.token);
-        await loadProfile();
+        // Keep backward compatibility with existing key, plus common "token" key.
+        localStorage.setItem(AUTH_TOKEN_KEY, response.token);
+        localStorage.setItem('token', response.token);
+
+        // Immediate auth state hydration avoids redirect lag/flicker.
+        const loginRole = normalizeRole(response?.user?.role || response?.profile?.role);
+        const loginId = String(response?.user?.userId || response?.profile?.id || '');
+        if (loginId) {
+          setUser({
+            id: loginId,
+            email,
+            role: loginRole,
+          });
+          setProfile((prev) => ({
+            ...(prev || {}),
+            ...(response?.profile || {}),
+            id: response?.profile?.id || loginId,
+            email: response?.profile?.email || email,
+            role: loginRole,
+            assignedCourses:
+              response?.profile?.assignedCourses ||
+              response?.profile?.assigned_courses ||
+              [],
+          } as Profile));
+        }
+
+        try {
+          return await loadProfile();
+        } catch {
+          const fallbackDestination = getHomeRouteByRole(loginRole);
+          setLoading(false);
+          return fallbackDestination;
+        }
       } else {
         throw new Error('No token received');
       }
     } catch (error: any) {
       setLoading(false);
+      if (error instanceof APIError) {
+        if (error.status === 401) {
+          throw new Error('Invalid email or password');
+        }
+        if (error.status === 0) {
+          throw new Error(error.message);
+        }
+      }
       throw error;
-    } finally {
-      // FIX: Prevent stuck "Signing in..." if redirect does not happen for any reason.
-      setLoading(false);
     }
   };
 
   const signOut = async () => {
-    localStorage.removeItem('auth_token');
+    clearStoredToken();
     setUser(null);
     setProfile(null);
+    setProfileError(null);
+    setLoading(false);
   };
 
   return (

@@ -1,7 +1,4 @@
-// FIX: Use same-origin API in production unless explicit VITE_API_URL is provided.
-const API_URL =
-  import.meta.env.VITE_API_URL ||
-  (import.meta.env.PROD ? '/api' : 'http://localhost:3001/api');
+import { API_BASE, AUTH_TOKEN_KEY, IS_DEV } from '../src/config';
 
 export class APIError extends Error {
   constructor(public status: number, message: string) {
@@ -11,7 +8,9 @@ export class APIError extends Error {
 }
 
 async function fetchAPI(endpoint: string, options: RequestInit = {}) {
-  const token = localStorage.getItem('auth_token');
+  const token = localStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem('token');
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), 15000);
   
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
@@ -22,21 +21,43 @@ async function fetchAPI(endpoint: string, options: RequestInit = {}) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_URL}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  try {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+    if (IS_DEV) {
+      console.log(`[API] ${options.method || 'GET'} ${API_BASE}${endpoint} -> ${response.status}`);
+    }
 
-  if (!response.ok) {
-    const error = await response
-      .json()
-      .catch(() => ({ message: response.statusText, details: null }));
-    const message = error.message || 'API request failed';
-    const details = error.details ? ` (${JSON.stringify(error.details)})` : '';
-    throw new APIError(response.status, `${message}${details}`);
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({ message: response.statusText, error: null }));
+      const message = error.message || 'API request failed';
+      const details = error.error ? ` (${JSON.stringify(error.error)})` : '';
+      throw new APIError(response.status, `${message}${details}`);
+    }
+
+    return response.json();
+  } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      throw new APIError(504, 'Request timed out');
+    }
+    if (error instanceof APIError) {
+      throw error;
+    }
+    if (error instanceof TypeError || String(error?.message || '').includes('Failed to fetch')) {
+      throw new APIError(
+        0,
+        'Unable to reach the authentication service. Check network/adblock and try again.'
+      );
+    }
+    throw new APIError(500, error?.message || 'Network error');
+  } finally {
+    globalThis.clearTimeout(timeout);
   }
-
-  return response.json();
 }
 
 export const api = {
