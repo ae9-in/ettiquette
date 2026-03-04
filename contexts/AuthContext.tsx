@@ -88,7 +88,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const loadProfile = async () => {
     try {
-      const profileData = await api.getProfile();
+      // FIX: Use dedicated auth endpoint for session validation.
+      const meResponse = await api.authMe();
+      const profileData = meResponse?.user;
       
       if (!profileData) {
         console.warn('[Auth] No profile data returned');
@@ -131,6 +133,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     } catch (error: any) {
       setLoading(false);
       throw error;
+    } finally {
+      // FIX: Prevent stuck "Signing in..." if redirect does not happen for any reason.
+      setLoading(false);
     }
   };
 

@@ -1,4 +1,7 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+// FIX: Use same-origin API in production unless explicit VITE_API_URL is provided.
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.PROD ? '/api' : 'http://localhost:3001/api');
 
 export class APIError extends Error {
   constructor(public status: number, message: string) {
@@ -25,8 +28,12 @@ async function fetchAPI(endpoint: string, options: RequestInit = {}) {
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: response.statusText }));
-    throw new APIError(response.status, error.message || 'API request failed');
+    const error = await response
+      .json()
+      .catch(() => ({ message: response.statusText, details: null }));
+    const message = error.message || 'API request failed';
+    const details = error.details ? ` (${JSON.stringify(error.details)})` : '';
+    throw new APIError(response.status, `${message}${details}`);
   }
 
   return response.json();
@@ -45,6 +52,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(userData),
     }),
+
+  authMe: () => fetchAPI('/auth/me'),
 
   // Profiles
   getProfile: () => fetchAPI('/profiles/me'),

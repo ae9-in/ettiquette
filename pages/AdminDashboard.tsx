@@ -106,7 +106,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, allUsers = [], o
           : `User pre-seeded: ${newUser.name} (${newUser.email}). They can now log in via Google.`
       });
       setShowAddUser(false);
-      setNewUserForm({ name: '', email: '', role: 'user', department: '' });
+      // FIX: Reset full form state to avoid stale assigned courses in subsequent creates.
+      setNewUserForm({ name: '', email: '', role: 'user', department: '', assignedCourses: [] });
     } catch (error: any) {
       setMessage({ type: 'error', text: error.message || 'Failed to create user' });
     } finally {
@@ -139,19 +140,29 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, allUsers = [], o
     if (!managedUser) return;
 
     const isAssigned = managedUser.assignedCourses.includes(courseId);
+    const optimisticUser = {
+      ...managedUser,
+      assignedCourses: isAssigned
+        ? managedUser.assignedCourses.filter(id => id !== courseId)
+        : [...managedUser.assignedCourses, courseId]
+    };
+    const previousUsers = allUsers;
+
+    // FIX: Apply optimistic UI update immediately so assignment actions feel instant.
+    onUpdateEmployees(allUsers.map(u => u.id === managedUserId ? optimisticUser : u));
 
     try {
       const updatedUser = await updateUser(managedUserId, {
-        assignedCourses: isAssigned
-          ? managedUser.assignedCourses.filter(id => id !== courseId)
-          : [...managedUser.assignedCourses, courseId]
+        assignedCourses: optimisticUser.assignedCourses
       });
 
       if (updatedUser) {
         const updatedUsers = allUsers.map(u => u.id === managedUserId ? updatedUser : u);
         onUpdateEmployees(updatedUsers);
       }
+      setMessage({ type: 'success', text: 'Assignment updated' });
     } catch (error: any) {
+      onUpdateEmployees(previousUsers);
       setMessage({ type: 'error', text: error.message || 'Failed to update course assignment' });
     }
   };

@@ -1,10 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
 export default function PlatformAdminLogin() {
-  const { signInWithGoogle, user, profile, loading, profileError, signOut } = useAuth();
+  const { signIn, user, profile, loading, profileError, signOut } = useAuth();
   const navigate = useNavigate();
+
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [processing, setProcessing] = useState(false);
 
@@ -21,7 +24,7 @@ export default function PlatformAdminLogin() {
       if (profile.role === 'platform_admin') {
         navigate('/admin', { replace: true });
       } else {
-        // Automatically sign out non-admins
+        // FIX: Prevent non-admin accounts from staying authenticated on admin route.
         signOut();
         setError('This account is not a platform admin.');
         setProcessing(false);
@@ -29,13 +32,17 @@ export default function PlatformAdminLogin() {
     }
   }, [loading, user, profile, profileError, navigate, signOut]);
 
-  const handleGoogleLogin = async () => {
+  const handleAdminLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
     setProcessing(true);
     setError('');
+
     try {
-      await signInWithGoogle();
+      await signIn(email, password);
     } catch (err: any) {
       setError(err.message || 'Authentication failed');
+    } finally {
+      // FIX: Always clear processing state to avoid stuck UI.
       setProcessing(false);
     }
   };
@@ -49,15 +56,14 @@ export default function PlatformAdminLogin() {
         </div>
 
         <div className="bg-white p-8 rounded-[32px] shadow-2xl shadow-slate-200/50 border border-slate-100 text-center">
-
           <div className="mb-6 flex justify-center">
             <div className="h-20 w-20 bg-indigo-50 rounded-full flex items-center justify-center text-3xl">
-              🛡️
+              Shield
             </div>
           </div>
 
           <p className="text-slate-600 mb-8 font-medium">
-            Sign in with your authorized Google account to access the administrative dashboard.
+            Sign in with your platform admin credentials.
           </p>
 
           {error && (
@@ -66,16 +72,31 @@ export default function PlatformAdminLogin() {
             </div>
           )}
 
-          <button
-            onClick={handleGoogleLogin}
-            disabled={processing}
-            className="w-full py-4 bg-slate-900 text-white rounded-[20px] font-black text-xs uppercase tracking-widest hover:bg-indigo-600 shadow-xl transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3"
-          >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12.545,10.239v3.821h5.445c-0.712,2.315-2.647,3.972-5.445,3.972c-3.332,0-6.033-2.701-6.033-6.032s2.701-6.032,6.033-6.032c1.498,0,2.866,0.549,3.921,1.453l2.814-2.814C17.503,2.988,15.139,2,12.545,2C7.021,2,2.543,6.477,2.543,12s4.478,10,10.002,10c8.396,0,10.249-7.85,9.426-11.748L12.545,10.239z" />
-            </svg>
-            {processing ? 'Connecting...' : 'Sign In with Google'}
-          </button>
+          <form className="space-y-4" onSubmit={handleAdminLogin}>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="admin@company.com"
+              className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <button
+              type="submit"
+              disabled={processing}
+              className="w-full py-4 bg-slate-900 text-white rounded-[20px] font-black text-xs uppercase tracking-widest hover:bg-indigo-600 shadow-xl transition-all active:scale-95 disabled:opacity-50"
+            >
+              {processing ? 'Connecting...' : 'Sign In'}
+            </button>
+          </form>
         </div>
 
         <p className="text-center mt-8 text-[10px] uppercase font-black text-slate-300 tracking-widest">
@@ -85,3 +106,4 @@ export default function PlatformAdminLogin() {
     </div>
   );
 }
+

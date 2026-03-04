@@ -16,6 +16,8 @@ const Login: React.FC = () => {
       await signIn(email, password);
     } catch (err: any) {
       setError(err.message || 'Authentication failed');
+    } finally {
+      // FIX: Always release button loading state.
       setLoading(false);
     }
   };
