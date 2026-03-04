@@ -14,6 +14,13 @@ const JWT_SECRET = process.env.JWT_SECRET || 'etiquette-lms-jwt-secret-key-2026'
 
 let cachedDb: any = null;
 
+function buildUserIdFilter(id: string) {
+  if (ObjectId.isValid(id)) {
+    return { _id: new ObjectId(id) };
+  }
+  return { _id: id };
+}
+
 async function connectDB() {
   if (cachedDb) {
     return cachedDb;
@@ -110,7 +117,12 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/profiles/me', authenticateToken, async (req: any, res) => {
   try {
     const db = await connectDB();
-    const user = await db.collection('users').findOne({ _id: new ObjectId(req.user.id) });
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ message: 'Invalid token payload' });
+    }
+
+    const user = await db.collection('users').findOne(buildUserIdFilter(userId));
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
@@ -168,7 +180,7 @@ app.put('/api/profiles/:id', authenticateToken, async (req: any, res) => {
     delete updates.password;
 
     const result = await db.collection('users').findOneAndUpdate(
-      { _id: new ObjectId(id) },
+      buildUserIdFilter(id),
       { $set: { ...updates, updatedAt: new Date() } },
       { returnDocument: 'after' }
     );
@@ -261,7 +273,7 @@ app.put('/api/users/:id', authenticateToken, async (req: any, res) => {
     delete updates.password;
 
     const result = await db.collection('users').findOneAndUpdate(
-      { _id: new ObjectId(id) },
+      buildUserIdFilter(id),
       { $set: { ...updates, updatedAt: new Date() } },
       { returnDocument: 'after' }
     );
@@ -297,7 +309,7 @@ app.delete('/api/users/:id', authenticateToken, async (req: any, res) => {
     }
 
     const { id } = req.params;
-    const result = await db.collection('users').deleteOne({ _id: new ObjectId(id) });
+    const result = await db.collection('users').deleteOne(buildUserIdFilter(id));
 
     if (result.deletedCount === 0) {
       return res.status(404).json({ message: 'User not found' });
@@ -320,7 +332,7 @@ app.post('/api/progress/module', authenticateToken, async (req: any, res) => {
     const xpGained = 200;
 
     const result = await db.collection('users').findOneAndUpdate(
-      { _id: new ObjectId(userId) },
+      buildUserIdFilter(userId),
       {
         $set: {
           [`progress.${courseId}.completedModules`]: { $addToSet: moduleId },
@@ -352,7 +364,7 @@ app.post('/api/progress/complete', authenticateToken, async (req: any, res) => {
     const xpGained = isPassed ? 500 : 0;
 
     const result = await db.collection('users').findOneAndUpdate(
-      { _id: new ObjectId(userId) },
+      buildUserIdFilter(userId),
       {
         $set: {
           [`progress.${courseId}.assessmentScore`]: score,
@@ -385,7 +397,7 @@ app.post('/api/xp', authenticateToken, async (req: any, res) => {
     const userId = req.user.id;
 
     await db.collection('users').updateOne(
-      { _id: new ObjectId(userId) },
+      buildUserIdFilter(userId),
       { $set: { xp, updatedAt: new Date() } }
     );
 

@@ -106,11 +106,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setLoading(false);
     } catch (err: any) {
       console.error('[Auth] Profile load error:', err);
-      if (err instanceof APIError && err.status === 401) {
+      if (err instanceof APIError && (err.status === 401 || err.status === 403)) {
         await signOut();
       }
       setProfileError(err);
       setLoading(false);
+      throw err;
     }
   };
 
